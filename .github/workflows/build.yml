@@ -1,0 +1,55 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Setup Java
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '11'
+    
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v2
+      with:
+        api-level: 33
+    
+    - name: Install dependencies
+      run: |
+        cd claude-chat-app
+        npm install
+    
+    - name: Generate keystore
+      run: |
+        cd claude-chat-app
+        keytool -genkey -v -keystore claude-chat-app.keystore \
+          -keyalg RSA -keysize 2048 -validity 10000 -alias claude-key \
+          -storepass 123456 -keypass 123456 \
+          -dname "CN=Claude Chat,OU=Dev,O=Claude,L=Shanghai,S=Shanghai,C=CN"
+    
+    - name: Build APK
+      run: |
+        cd claude-chat-app/android
+        ./gradlew clean
+        ./gradlew assembleRelease
+    
+    - name: Upload APK
+      uses: actions/upload-artifact@v3
+      with:
+        name: claude-chat-apk
+        path: claude-chat-app/android/app/build/outputs/apk/release/app-release.apk
