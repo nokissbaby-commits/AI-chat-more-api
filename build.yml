@@ -1,0 +1,101 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:  # 允许手动触发构建
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Setup Java
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '11'
+    
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v2
+      with:
+        api-level: 33
+        build-tools-version: '33.0.0'
+    
+    - name: Install dependencies
+      run: |
+        cd claude-chat-app
+        npm install
+    
+    - name: Generate keystore
+      run: |
+        cd claude-chat-app
+        keytool -genkey -v -keystore claude-chat-app.keystore \
+          -keyalg RSA -keysize 2048 -validity 10000 -alias claude-key \
+          -storepass 123456 -keypass 123456 \
+          -dname "CN=Claude Chat,OU=Development,O=Claude,L=Shanghai,S=Shanghai,C=CN"
+    
+    - name: Configure signing in build.gradle
+      run: |
+        cd claude-chat-app/android/app
+        cat >> build.gradle << 'EOF'
+
+signingConfigs {
+    release {
+        keyAlias "claude-key"
+        keyPassword "123456"
+        storeFile file("../../claude-chat-app.keystore")
+        storePassword "123456"
+    }
+}
+
+buildTypes {
+    release {
+        signingConfig signingConfigs.release
+    }
+}
+EOF
+    
+    - name: Build APK
+      run: |
+        cd claude-chat-app/android
+        ./gradlew clean
+        ./gradlew assembleRelease
+    
+    - name: Upload APK to artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: apk-release
+        path: claude-chat-app/android/app/build/outputs/apk/release/app-release.apk
+        retention-days: 30
+    
+    - name: Create Release
+      uses: actions/create-release@v1
+      if: startsWith(github.ref, 'refs/tags/')
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        body: |
+          Claude Chat App APK
+          Download the APK below to install on your Android device.
+    
+    - name: Upload APK to Release
+      uses: actions/upload-release-asset@v1
+      if: startsWith(github.ref, 'refs/tags/')
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: claude-chat-app/android/app/build/outputs/apk/release/app-release.apk
+        asset_name: claude-chat-app-v${{ github.ref_name }}.apk
+        asset_content_type: application/vnd.android.package-archive
